@@ -21,7 +21,9 @@ const columns = { id: knowledgeCards.id, title: knowledgeCards.title, category: 
  * Finds the most relevant *saved* cards for a boat.
  *
  * Strategy (v1, no vector DB):
- *  1. Postgres full-text search (title weighted A, category B, body C) using websearch syntax.
+ *  1. Postgres full-text search (title weighted A, category B, body C). Query
+ *     is an OR over the question's lexemes (stop words stripped by tsvector),
+ *     ranked by ts_rank — see the note below step 1.
  *  2. ILIKE fallback on individual keywords when FTS finds too little.
  *  3. If the boat has only a handful of cards, the rest are appended as background
  *     context — the LLM can then handle vague or indirect questions too.
