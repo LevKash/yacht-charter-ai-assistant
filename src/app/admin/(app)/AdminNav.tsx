@@ -10,6 +10,7 @@ import { logoutAction } from "../actions";
 const items = [
   { href: "/admin/boats", label: copy.admin.nav.boats, icon: "⛵" },
   { href: "/admin/import", label: copy.admin.nav.import, icon: "✨" },
+  { href: "/admin/qr", label: copy.admin.nav.qr, icon: "🔳" },
   { href: "/admin/settings", label: copy.admin.nav.settings, icon: "⚙️" },
 ];
 
@@ -54,7 +55,7 @@ export function AdminNav({ user }: { user: SessionUser }) {
       </header>
 
       {/* Bottom tabs (mobile) */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
         {items.map((it) => (
           <Link
             key={it.href}

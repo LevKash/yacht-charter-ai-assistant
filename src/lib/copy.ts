@@ -19,7 +19,7 @@ export const copy = {
       `I don't have that info yet — I'm still learning about ${boat}. ${contact}`.trim(),
   },
   admin: {
-    nav: { boats: "Boats", import: "Import", settings: "Settings", signOut: "Sign out" },
+    nav: { boats: "Boats", import: "Import", qr: "QR codes", settings: "Settings", signOut: "Sign out" },
     boatsEmptyTitle: "No boats yet",
     boatsEmptyBody: "Add your first boat to start building its knowledge. Or create the demo yacht to see how everything works.",
     knowledgeEmptyTitle: "This boat has no knowledge yet",
