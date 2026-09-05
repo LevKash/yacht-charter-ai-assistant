@@ -39,10 +39,15 @@ export async function retrieveCards(boatId: number, query: string): Promise<Retr
     for (const row of rows) if (!results.some((r) => r.id === row.id)) results.push({ ...row, matched });
   };
 
-  // 1. Full-text search
+  // 1. Full-text search.
+  // Query built as OR over the question's lexemes: stop words ("how", "many",
+  // "does", "is", "there") are dropped by to_tsvector, and an AND over the rest
+  // would kill composite questions ("cabins AND watermaker") because the facts
+  // live in separate cards. OR + ts_rank naturally ranks cards matching more
+  // query terms on top.
   if (cleaned) {
     const vector = sql`(setweight(to_tsvector('english', ${knowledgeCards.title}), 'A') || setweight(to_tsvector('english', coalesce(${knowledgeCards.category}, '')), 'B') || setweight(to_tsvector('english', ${knowledgeCards.body}), 'C'))`;
-    const tsQuery = sql`websearch_to_tsquery('english', ${cleaned})`;
+    const tsQuery = sql`to_tsquery('english', (select string_agg(lexeme, ' | ') from unnest(to_tsvector('english', ${cleaned}))))`;
     const rows = await db
       .select(columns)
       .from(knowledgeCards)
@@ -59,11 +64,17 @@ export async function retrieveCards(boatId: number, query: string): Promise<Retr
       const conditions = words.map(
         (w) => sql`(${knowledgeCards.title} ilike ${"%" + w + "%"} or ${knowledgeCards.body} ilike ${"%" + w + "%"} or ${knowledgeCards.category} ilike ${"%" + w + "%"})`,
       );
+      // Rank by how many query words a card matches (equal `updated_at` on bulk
+      // imports would otherwise return an arbitrary top 5).
+      const score = sql.join(
+        words.map((w) => sql`((${knowledgeCards.title} ilike ${"%" + w + "%"})::int + (${knowledgeCards.body} ilike ${"%" + w + "%"})::int + (${knowledgeCards.category} ilike ${"%" + w + "%"})::int)`),
+        sql` + `,
+      );
       const rows = await db
         .select(columns)
         .from(knowledgeCards)
         .where(and(savedFilter, sql.join(conditions, sql` or `)))
-        .orderBy(desc(knowledgeCards.updatedAt))
+        .orderBy(desc(score), desc(knowledgeCards.updatedAt))
         .limit(TOP_K);
       push(rows, true);
     }
