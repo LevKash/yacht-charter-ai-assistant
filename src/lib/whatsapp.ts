@@ -49,7 +49,16 @@ function extractMention(text: string): string | null {
   return text.replace(re, "").trim();
 }
 
-/** Short memorable hint for !bind (first non-numeric word of the name). */
+/** Words that mark the boat *model* in a name (hint stops before them). */
+const MODEL_WORDS = new Set([
+  "fountaine", "pajot", "beneteau", "oceanis", "sun", "odyssey", "lagoon",
+  "dufour", "bali", "aventura", "yacht", "saba", "charter",
+]);
+
+/**
+ * Short memorable hint for !bind — leading name tokens up to the model word,
+ * so lookalikes stay distinct (Dione vs Dione II) but model noise is cut.
+ */
 export function bindHint(name: string): string {
   const words = name
     .toLowerCase()
@@ -57,7 +66,12 @@ export function bindHint(name: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  return words.find((w) => !/^\d+$/.test(w)) ?? words[0] ?? name.toLowerCase();
+  const tokens: string[] = [];
+  for (const w of words) {
+    if (MODEL_WORDS.has(w) || /^\d+$/.test(w)) break;
+    tokens.push(w);
+  }
+  return tokens.join(" ") || words[0] || name.toLowerCase();
 }
 
 /**
