@@ -11,8 +11,18 @@ export type RetrievedCard = {
   matched: boolean;
 };
 
-const SMALL_BOAT_THRESHOLD = 12;
+const SMALL_BOAT_THRESHOLD = 15;
 const TOP_K = 5;
+
+// Guests phrase things differently than the card bodies do: the data says
+// "LOA (m)" but people ask "how long / what size", and "Heads" is asked as
+// "bathrooms / toilets". Normalise before FTS + ILIKE so the query terms
+// actually occur in the data. ("how LOA is the boat" is fine — we only feed
+// the lexemes to tsquery, not the sentence.)
+const QUERY_ALIASES: Array<[RegExp, string]> = [
+  [/\b(length|long|size)\b/gi, "LOA"],
+  [/\b(bathrooms?|toilets?|washrooms?)\b/gi, "heads"],
+];
 
 type Row = { id: number; title: string; category: string; body: string };
 const columns = { id: knowledgeCards.id, title: knowledgeCards.title, category: knowledgeCards.category, body: knowledgeCards.body };
@@ -35,7 +45,11 @@ export async function retrieveCards(boatId: number, query: string): Promise<Retr
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(knowledgeCards).where(savedFilter);
   if (count === 0) return [];
 
-  const cleaned = query.replace(/[^\p{L}\p{N}\s'-]/gu, " ").replace(/\s+/g, " ").trim();
+  let cleaned = query
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  for (const [re, to] of QUERY_ALIASES) cleaned = cleaned.replace(re, to);
   const results: RetrievedCard[] = [];
   const push = (rows: Row[], matched: boolean) => {
     for (const row of rows) if (!results.some((r) => r.id === row.id)) results.push({ ...row, matched });
