@@ -1,20 +1,85 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { LightMarkdown } from "@/components/markdown";
 import { copy } from "@/lib/copy";
 
 type Msg = { id: number; role: "user" | "assistant"; content: string };
 
+/** Device-local persistence (localStorage), scoped per boat. Version-prefixed so the format can be migrated later. */
+const STORAGE_PREFIX = "guestchat:v1:";
+const MAX_STORED_MESSAGES = 100;
+
+function storageKey(slug: string) {
+  return `${STORAGE_PREFIX}${slug}`;
+}
+
+/** Read + validate persisted messages. Any failure (no storage, bad JSON, malformed data) => empty list, silently. */
+function loadStoredMessages(slug: string): Msg[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = window.localStorage.getItem(storageKey(slug));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const out: Msg[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const { id, role, content } = item as Record<string, unknown>;
+      if (typeof id !== "number" || !Number.isFinite(id) || id === 0) continue;
+      if (role !== "user" && role !== "assistant") continue;
+      if (typeof content !== "string") continue;
+      out.push({ id, role, content });
+    }
+    return out.slice(-MAX_STORED_MESSAGES);
+  } catch {
+    return [];
+  }
+}
+
+/** Persist only real messages (never the welcome bubble). Never throws (Safari private mode, quota exceeded, ...). */
+function saveStoredMessages(slug: string, messages: Msg[]) {
+  try {
+    if (typeof window === "undefined") return;
+    const toStore = messages.filter((m) => m.id !== 0).slice(-MAX_STORED_MESSAGES);
+    window.localStorage.setItem(storageKey(slug), JSON.stringify(toStore));
+  } catch {
+    // ignore: storage unavailable or full — chat must keep working
+  }
+}
+
+const subscribeNoop = () => () => {};
+/** false during SSR and the hydration render, true once mounted on the client (no setState-in-effect needed). */
+function useHydrated() {
+  return useSyncExternalStore(subscribeNoop, () => true, () => false);
+}
+
+function highestId(messages: Msg[]) {
+  return messages.reduce((max, m) => (m.id > max ? m.id : max), 0);
+}
+
 export function GuestChat({ slug, boatName, companyName }: { slug: string; boatName: string; companyName: string }) {
-  const [messages, setMessages] = useState<Msg[]>([{ id: 0, role: "assistant", content: copy.guest.welcome(boatName) }]);
+  // Welcome bubble (id 0, never sent to the API) first, then the conversation restored from this device's
+  // localStorage. On the server `loadStoredMessages` returns [] so the initial state is the welcome bubble only.
+  const [messages, setMessages] = useState<Msg[]>(() => [
+    { id: 0, role: "assistant", content: copy.guest.welcome(boatName) },
+    ...loadStoredMessages(slug),
+  ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const nextIdRef = useRef(1);
+  // Continue the id counter past the highest restored id so React keys stay unique (1 on a fresh chat).
+  const nextIdRef = useRef(highestId(messages) + 1);
+  const hydrated = useHydrated();
 
   const nextId = () => nextIdRef.current++;
+
+  // Persist on every message change. Only real messages are stored (never the welcome bubble);
+  // the typing indicator is not part of `messages`, so it is never stored either.
+  useEffect(() => {
+    saveStoredMessages(slug, messages);
+  }, [slug, messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -50,7 +115,11 @@ export function GuestChat({ slug, boatName, companyName }: { slug: string; boatN
     void ask(input);
   }
 
-  const showSuggestions = messages.length === 1;
+  // The server never sees localStorage, so the hydration render must match its HTML (welcome bubble only).
+  // Right after hydration the restored conversation is shown. `messages` itself always holds the full history.
+  const visibleMessages = hydrated ? messages : messages.filter((m) => m.id === 0);
+
+  const showSuggestions = visibleMessages.length === 1;
 
   return (
     <div className="flex h-dvh flex-col bg-[#eef3f3]">
@@ -66,7 +135,7 @@ export function GuestChat({ slug, boatName, companyName }: { slug: string; boatN
       {/* Messages */}
       <main className="flex-1 overflow-y-auto px-3 py-4">
         <div className="mx-auto flex max-w-2xl flex-col gap-2.5">
-          {messages.map((m) => (
+          {visibleMessages.map((m) => (
             <div key={m.id} className={`fade-up flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
                 className={
