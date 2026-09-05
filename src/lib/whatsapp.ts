@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, ilike } from "drizzle-orm";
 import { db } from "@/db";
 import { boats, whatsappBindings } from "@/db/schema";
 import { answerQuestion } from "./ai/answer";
@@ -49,6 +49,17 @@ function extractMention(text: string): string | null {
   return text.replace(re, "").trim();
 }
 
+/** Short memorable hint for !bind (first non-numeric word of the name). */
+export function bindHint(name: string): string {
+  const words = name
+    .toLowerCase()
+    .replace(/[^\p{L}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.find((w) => !/^\d+$/.test(w)) ?? words[0] ?? name.toLowerCase();
+}
+
 /**
  * Decide what (if anything) to reply. Returns null to stay silent — important
  * in busy groups: the bot only reacts to commands and mentions.
@@ -67,10 +78,26 @@ export async function handleIncomingWhatsapp(msg: IncomingWhatsapp): Promise<str
 
   // --- commands -----------------------------------------------------
   if (lower.startsWith("!bind")) {
-    const slug = text.slice(5).trim().toLowerCase().replace(/^@/, "");
-    if (!slug) return copy.whatsapp.unbound;
-    const [boat] = await db.select().from(boats).where(eq(boats.slug, slug)).limit(1);
-    if (!boat) return copy.whatsapp.unknownBoat(slug);
+    const term = text
+      .slice(5)
+      .trim()
+      .toLowerCase()
+      .replace(/^@/, "")
+      .replace(/[%_]/g, (m) => `\\${m}`);
+    if (!term) return copy.whatsapp.unbound;
+    // Accept an exact slug ("sissy-fountaine-pajot-42…") or any human-friendly
+    // fragment of the name ("sissy") — captains won't remember slugs.
+    const [bySlug] = await db.select().from(boats).where(eq(boats.slug, term)).limit(1);
+    let matches: Array<{ id: number; name: string; slug: string }> = [];
+    if (bySlug) {
+      matches = [bySlug];
+    } else {
+      matches = await db.select().from(boats).where(ilike(boats.name, `%${term}%`)).limit(5);
+      if (!matches.length) matches = await db.select().from(boats).where(ilike(boats.slug, `%${term}%`)).limit(5);
+    }
+    if (!matches.length) return copy.whatsapp.unknownBoat(term.replace(/\\/g, ""));
+    if (matches.length > 1) return copy.whatsapp.ambiguous(matches.map((b) => bindHint(b.name)).join(", "));
+    const boat = matches[0];
     await db
       .insert(whatsappBindings)
       .values({ groupId: msg.conversationId, boatId: boat.id, active: true })
@@ -81,6 +108,10 @@ export async function handleIncomingWhatsapp(msg: IncomingWhatsapp): Promise<str
     if (binding) await db.delete(whatsappBindings).where(eq(whatsappBindings.id, binding.id));
     return copy.whatsapp.unbound_ok;
   }
+  if (lower === "!boats") {
+    const all = await db.select({ name: boats.name }).from(boats).orderBy(boats.name);
+    return copy.whatsapp.boatsList(all.map((b) => b.name));
+  }
   if (lower === "!status") return copy.whatsapp.status(binding?.boatName ?? null, binding?.active ?? false);
   if (lower === "!off" || lower === "!on") {
     if (!binding) return copy.whatsapp.unbound;
@@ -88,7 +119,7 @@ export async function handleIncomingWhatsapp(msg: IncomingWhatsapp): Promise<str
     await db.update(whatsappBindings).set({ active, updatedAt: new Date() }).where(eq(whatsappBindings.id, binding.id));
     return active ? copy.whatsapp.on : copy.whatsapp.off;
   }
-  if (lower === "!help") return copy.whatsapp.unbound + "\nCommands: !ask <question>, !status, !on, !off, !unbind";
+  if (lower === "!help" || lower === "!start") return copy.whatsapp.help;
 
   // --- questions ----------------------------------------------------
   let question: string | null = null;

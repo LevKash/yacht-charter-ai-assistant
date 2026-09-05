@@ -33,13 +33,28 @@ export const copy = {
     aiDisabled: "AI is not connected yet. Add OPENROUTER_API_KEY to enable smart answers and imports. Until then the assistant answers with matching cards and imports are split by paragraph.",
   },
   whatsapp: {
-    unbound: "Hi! I'm the boat assistant. Reply with !bind <boat> to connect me to this boat (e.g. !bind lamela).",
+    unbound:
+      "Hi! I'm the boat assistant ⛵ This chat isn't connected to a boat yet. Send !bind <boat> (e.g. !bind sissy) or !boats to see the fleet.",
     bound: (boat: string) => `Connected to ${boat}. Mention me or use !ask <question> and I'll help. ⛵`,
-    unknownBoat: (slug: string) => `I don't know a boat called "${slug}". Check the spelling or ask the office for the boat's short name.`,
+    unknownBoat: (term: string) =>
+      `I don't know a boat called "${term}". Try !boats to see the fleet, then !bind <boat name>.`,
+    ambiguous: (hints: string) =>
+      `That matches several boats (${hints}). Try !bind with one of those short names.`,
+    boatsList: (names: string[]) =>
+      `Available boats:\n${names.map((n) => `• ${n}`).join("\n")}\n\nSend !bind <boat name> to connect this chat to a boat.`,
     unbound_ok: "Disconnected from this boat. Use !bind <boat> to reconnect.",
     off: "Okay, I'll stay quiet in this group. Send !on to wake me up.",
     on: "I'm back! Mention me or use !ask <question>.",
     status: (boat: string | null, active: boolean) =>
       boat ? `Connected to ${boat}. Assistant is ${active ? "on" : "off"}.` : "Not connected to any boat yet. Use !bind <boat>.",
+    help: `I'm the boat assistant for Bax Yachting ⛵
+
+Commands:
+!bind <boat> — connect this chat to a boat (e.g. !bind sissy)
+!boats — list the fleet
+!status — show the current boat
+!ask <question> — ask about the boat (or mention me)
+!off / !on — mute / unmute me here
+!unbind — disconnect this chat`,
   },
 } as const;
